@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CODEX-SPEC-007 Pilot</title>
+  <link
+    rel="stylesheet"
+    href="./vendor/leaflet/1.9.4/leaflet.css"
+  >
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f3f1eb;
+      --paper-2: #ece8e0;
+      --panel: rgba(255, 255, 255, 0.72);
+      --line: rgba(25, 25, 23, 0.14);
+      --line-strong: rgba(25, 25, 23, 0.34);
+      --ink: #1d1d1a;
+      --ink-soft: #5b5b56;
+      --ink-faint: #87857c;
+      --accent: #6b6f73;
+      --accent-strong: #2f3336;
+      --selection: #111111;
+      --shadow: 0 18px 48px rgba(18, 18, 16, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      font-family: "Times New Roman", Georgia, serif;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.4), rgba(255,255,255,0) 22%),
+        linear-gradient(135deg, #f5f2ec 0%, #ece7de 45%, #e4ded4 100%);
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    #app {
+      min-height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="./vendor/leaflet/1.9.4/leaflet.js"></script>
+  <script src="./payload.js?v=spec024-supply-pressure"></script>
+  <script src="./payload-dev.js?v=spec024-supply-pressure"></script>
+  <script src="./app.js?v=spec026-chip-fits-map"></script>
+</body>
+</html>
