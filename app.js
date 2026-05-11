@@ -3,6 +3,74 @@
   const leaflet = window.L;
   const app = document.getElementById("app");
 
+  // spec-027 / phase-2a: when no dev-server backend is reachable (e.g. the
+  // static GitHub Pages demo), the TARGETS overlay sources its weak-target
+  // ranking directly from Supabase via the wm_weak_targets PostgREST RPC.
+  // The publishable key is intentionally public; RLS makes it read-only.
+  const WM_SUPABASE_URL = "https://luxnnmgayfknzmqxchdu.supabase.co";
+  const WM_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_h6Pw7xQVcj5kSndBx4BG4A_JHWQ2n2s";
+
+  // Shim that returns the legacy /api/buildings/weak-targets response
+  // shape (so the rest of the file doesn't care where the data came from).
+  // Tries the local dev-server first — if it's running the prototype keeps
+  // its existing behavior. Falls back to Supabase RPC when the dev-server
+  // is absent (the static demo case).
+  function wmFetchWeakTargets(limit) {
+    const localUrl = "/api/buildings/weak-targets?limit=" + (limit || 200);
+    const supabaseUrl = WM_SUPABASE_URL + "/rest/v1/rpc/wm_weak_targets";
+
+    function callSupabase() {
+      return fetch(supabaseUrl, {
+        method: "POST",
+        headers: {
+          "apikey": WM_SUPABASE_PUBLISHABLE_KEY,
+          "Authorization": "Bearer " + WM_SUPABASE_PUBLISHABLE_KEY,
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({ p_limit: limit || 200 })
+      }).then(function (r) {
+        if (!r.ok) return r.text().then(function (t) {
+          throw new Error("supabase " + r.status + ": " + t.slice(0, 200));
+        });
+        return r.json();
+      }).then(function (rows) {
+        return {
+          generated_at: new Date().toISOString(),
+          generated_by: "supabase:wm_weak_targets",
+          weakness_pool_size: rows.length,
+          selection_limit: limit || 200,
+          selection_pct: null,
+          result_count: rows.length,
+          weak_project_ids: rows.map(function (r) { return r.project_id; }),
+          results: rows.map(function (r) {
+            return {
+              project_id: r.project_id,
+              building_name: r.building_name,
+              neighborhood: r.neighborhood,
+              score: Number(r.score),
+              dom_delta_days: r.dom_delta_days,
+              // preserve the legacy key the rest of app.js reads
+              avail_delta: Number(r.avail_ratio_delta),
+              price_delta_pct: Number(r.price_delta_pct),
+              weakness_one_liner: r.weakness_one_liner
+            };
+          })
+        };
+      });
+    }
+
+    // Try the local dev-server first; fall back to Supabase RPC on any
+    // non-success (404, network error, etc.). This keeps the in-house
+    // developer flow snappy while letting the static demo Just Work.
+    return fetch(localUrl)
+      .then(function (r) {
+        if (!r.ok) throw new Error("dev-server " + r.status);
+        return r.json();
+      })
+      .catch(callSupabase);
+  }
+
   if (!payload || !Array.isArray(payload.projects)) {
     app.textContent = "Payload unavailable.";
     return;
@@ -2076,8 +2144,7 @@
       return;
     }
 
-    fetch("/api/buildings/weak-targets?limit=200")
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    wmFetchWeakTargets(200)
       .then(function (data) {
         weakTargetsRanked = (data.results || []).slice();
         applyChip(weakTargetsRanked);
@@ -2975,8 +3042,7 @@
     }
     if (active && weakTargetsRanked === null && !weakTargetLoading) {
       weakTargetLoading = true;
-      fetch("/api/buildings/weak-targets?limit=200")
-        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      wmFetchWeakTargets(200)
         .then(function (data) {
           weakTargetsRanked = (data.results || []).slice();
           weakTargetLoading = false;
