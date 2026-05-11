@@ -5,8 +5,7 @@ Live demo: **https://orthogon-ai-labs.github.io/manhattan-world-model-demo/**
 A vector / wireframe world model of Manhattan rendered as an
 architectural massing study, surfacing real-estate intelligence:
 
-- 916 buildings rising from the map at actual story counts
-- TARGETS overlay highlighting the top weakest rentals
+- 1044 buildings rising from the map at actual story counts
 - Lens filters: marketing mode, building status, decision-maker
   status, size, residential type, free-text search
 - Timeline slider hides pre-start buildings by quarter
@@ -15,6 +14,18 @@ architectural massing study, surfacing real-estate intelligence:
 
 The map is the navigation surface. The dossier is the operating
 surface.
+
+## Known limitation (this static snapshot)
+
+The **TARGETS overlay** (top-right mode toggle, yellow-highlighting
+of the weakest rentals) requires a live backend call to
+`/api/buildings/weak-targets`. This demo is a pure static
+deployment of GitHub Pages — no backend is reachable, so toggling
+Targets shows zero highlighted projects.
+
+This will be addressed in v2 alongside the CSV→Supabase migration
+(see source repo). World mode and every other filter / dossier /
+timeline behavior is fully functional here.
 
 ## What's in this repo
 
