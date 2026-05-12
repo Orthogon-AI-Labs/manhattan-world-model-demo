@@ -1051,6 +1051,12 @@
     return { label: "Unknown", tone: "is-lease-unknown" };
   }
 
+  function decisionMakerStatus(workflow) {
+    const status = String((workflow && workflow.decision_maker_status) || "unknown").toLowerCase();
+    if (status === "known") return { label: "DM known", tone: "is-success" };
+    return { label: "DM unknown", tone: "is-lease-unknown" };
+  }
+
   function typeLabel(project) {
     const residentialType = String(project.facts.residential_type || project.list.residential_type || "").toLowerCase();
     const marketMode = String(project.facts.market_mode || project.list.market_mode || project.map.market_mode || "").toLowerCase();
@@ -4132,6 +4138,49 @@
         });
     });
     stateRow.appendChild(mChip);
+    const dmChipStatus = decisionMakerStatus(workflow);
+    const dmChip = createEl("button", "brief-chip is-editable " + dmChipStatus.tone, dmChipStatus.label);
+    dmChip.type = "button";
+    dmChip.title = "Decision-maker status — click to toggle known / unknown";
+    dmChip.style.cursor = "pointer";
+    dmChip.addEventListener("click", function (evt) {
+      evt.stopPropagation();
+      const current = String(
+        (selected.workflow && selected.workflow.decision_maker_status) || "unknown"
+      ).toLowerCase();
+      const next = current === "known" ? "unknown" : "known";
+      const prev = selected.workflow.decision_maker_status;
+      selected.workflow.decision_maker_status = next;
+      const nextStatus = decisionMakerStatus(selected.workflow);
+      dmChip.className = "brief-chip is-editable " + nextStatus.tone;
+      dmChip.textContent = nextStatus.label;
+      wmFetchDevApi("/api/projects/" + encodeURIComponent(selected.project_id), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ decision_maker_status: next }),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.text().then(function (t) { throw new Error("PATCH " + r.status + ": " + t.slice(0, 200)); });
+          return r.json();
+        })
+        .then(function () {
+          if (typeof applyAllFilters === "function") applyAllFilters();
+        })
+        .catch(function (err) {
+          console.warn("[wm] decision_maker_status PATCH failed; reverting", err);
+          selected.workflow.decision_maker_status = prev;
+          const revertStatus = decisionMakerStatus(selected.workflow);
+          dmChip.className = "brief-chip is-editable " + revertStatus.tone;
+          dmChip.textContent = revertStatus.label;
+          const errEl = createEl("span", "wm-edit-error", " · save failed");
+          errEl.style.color = "#a85a4a";
+          errEl.style.fontSize = "10px";
+          errEl.style.marginLeft = "4px";
+          dmChip.parentElement && dmChip.parentElement.appendChild(errEl);
+          setTimeout(function () { errEl.remove(); }, 3000);
+        });
+    });
+    stateRow.appendChild(dmChip);
     const wfChip = createEl("div", "brief-chip " + workflowTone(workflow.state), workflowLabel(workflow.state));
     wfChip.title = "Workflow state — current position in your outreach pipeline";
     stateRow.appendChild(wfChip);
