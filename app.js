@@ -498,7 +498,11 @@
     // Edits don't touch FUB — sync stays write-only on create per spec-011.
     const url = "/api/projects/" + encodeURIComponent(projectId)
       + "/dm-promotions/" + encodeURIComponent(contactId);
-    return fetch(url, {
+    // spec-027d: routed through wmFetchDevApi so the static demo's "Edit DM"
+    // button hits the Fly backend. Note: Fly's filesystem isn't persistent,
+    // so dm-promotions.json resets on every container restart — fine for
+    // demo, not durable state.
+    return wmFetchDevApi(url, {
       method: "PATCH",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(body),
@@ -521,7 +525,9 @@
     // 207 multi-status (CODEX-SPEC-011) → {project, fub_error}. Non-2xx
     // throws an Error with .status and .code.
     const url = "/api/projects/" + encodeURIComponent(projectId) + "/dm-promotions";
-    return fetch(url, {
+    // spec-027d: routed through wmFetchDevApi (same caveat as PATCH above —
+    // writes are ephemeral on the Fly container).
+    return wmFetchDevApi(url, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(body),
