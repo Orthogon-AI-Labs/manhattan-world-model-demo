@@ -10,6 +10,13 @@
   const WM_SUPABASE_URL = "https://luxnnmgayfknzmqxchdu.supabase.co";
   const WM_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_h6Pw7xQVcj5kSndBx4BG4A_JHWQ2n2s";
 
+  // spec-027 / phase-2c: discovery chips ("Best opportunities to pitch this
+  // week", etc.) hit /api/discovery/query which runs Anthropic Haiku to
+  // parse the natural-language question, then SQL on Supabase. There's no
+  // pure-Postgres equivalent (Haiku is in the loop), so the static demo
+  // calls a deployed copy of tools/dev-server.py on Fly.io instead.
+  const WM_DEV_API_BASE = "https://orthogon-wm-api.fly.dev";
+
   // Shim that returns the legacy /api/buildings/weak-targets response
   // shape (so the rest of the file doesn't care where the data came from).
   // Tries the local dev-server first — if it's running the prototype keeps
@@ -69,6 +76,27 @@
         return r.json();
       })
       .catch(callSupabase);
+  }
+
+  // spec-027 / phase-2c: wrap fetch("/api/discovery/query"). Same pattern
+  // as wmFetchWeakTargets — try local dev-server first, fall through to
+  // the deployed Fly.io copy on any non-OK / network error. The Fly host
+  // mirrors the dev-server endpoint exactly, so the request + response
+  // shapes are identical; no reshaping needed.
+  function wmFetchDiscoveryQuery(body, init) {
+    const localUrl = "/api/discovery/query";
+    const remoteUrl = WM_DEV_API_BASE + "/api/discovery/query";
+    const reqInit = Object.assign({
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body || {})
+    }, init || {});
+    return fetch(localUrl, reqInit)
+      .then(function (r) {
+        if (!r.ok) throw new Error("dev-server " + r.status);
+        return r;
+      })
+      .catch(function () { return fetch(remoteUrl, reqInit); });
   }
 
   if (!payload || !Array.isArray(payload.projects)) {
@@ -1915,16 +1943,14 @@
       runRentalLocalChip(q);
       return;
     }
-    fetch("/api/discovery/query", {
-      method: "POST",
-      headers: {"content-type": "application/json"},
-      // spec-025f: ask for a deep pool so the Outside / In-house toggle in
-      // the right rail has enough headroom to slice off the in-house-
-      // dominant top-N. The Haiku LLM-parser may emit limit=20; this client
-      // override pins the request to 200 so the score-ranking returns up to
-      // 200 matches and the mode toggle gets meaningful slices.
-      body: JSON.stringify({q: q, limit: 200}),
-    })
+    // spec-027 / phase-2c: wmFetchDiscoveryQuery() falls through to the
+    // deployed Fly.io dev-server when no local one is running.
+    // spec-025f: ask for a deep pool so the Outside / In-house toggle in the
+    // right rail has enough headroom to slice off the in-house-dominant
+    // top-N. The Haiku LLM-parser may emit limit=20; this client override
+    // pins the request to 200 so the score-ranking returns up to 200
+    // matches and the mode toggle gets meaningful slices.
+    wmFetchDiscoveryQuery({q: q, limit: 200})
       .then(function (resp) {
         return resp.json().then(function (data) {
           return {ok: resp.ok, status: resp.status, data: data};
