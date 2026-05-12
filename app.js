@@ -3054,6 +3054,39 @@
     weakTargetIds = ids;
   }
 
+  // Sentinel used to identify a discoveryResults envelope that was set by
+  // the TARGETS mode toggle (vs. a real discovery chip). Lets us clear our
+  // own state on toggle-off without trampling user-driven chip results.
+  const _TARGETS_OVERLAY_SUMMARY = "All weak targets";
+
+  function _populateDossierFromTargets() {
+    // Mirrors runRentalLocalChip's shape: adapts wmFetchWeakTargets rows
+    // into the discoveryResults envelope that renderTargetsList consumes.
+    const ranked = weakTargetsRanked || [];
+    const results = ranked.map(function (r) {
+      return {
+        project_id: r.project_id,
+        building_name: r.building_name,
+        neighborhood: r.neighborhood,
+        matching_signal: {
+          punchy: _punchyLineFromWeakTarget(r),
+          kind: "targets_overlay",
+        },
+      };
+    });
+    discoveryActive = true;
+    discoveryError = null;
+    discoveryResults = {
+      filter_summary: _TARGETS_OVERLAY_SUMMARY,
+      result_count: results.length,
+      results: results,
+    };
+    if (nodes.discoveryStatus) {
+      nodes.discoveryStatus.textContent = "n=" + results.length;
+    }
+    renderDossier();
+  }
+
   function setTargetsOverlay(active) {
     if (active === targetsOverlayActive) return;
     targetsOverlayActive = active;
@@ -3066,13 +3099,46 @@
         nodes.modeButtons.Targets.classList.toggle("is-active", active);
       }
     }
-    if (active && weakTargetsRanked === null && !weakTargetLoading) {
+
+    // spec-027c: TARGETS mode should ALSO populate the dossier with the
+    // weak-targets list (previously the button only highlighted markers and
+    // left the dossier untouched, which felt broken to users). We reuse the
+    // discoveryResults envelope so renderTargetsList — already wired with
+    // marketing-mode toggle, map-lens narrowing, etc. — handles everything.
+    if (!active) {
+      // Only clear if it was us that populated it (don't trample a real chip).
+      if (discoveryActive
+          && discoveryResults
+          && discoveryResults.filter_summary === _TARGETS_OVERLAY_SUMMARY) {
+        discoveryActive = false;
+        discoveryResults = null;
+        discoveryError = null;
+        if (nodes.discoveryStatus) nodes.discoveryStatus.textContent = "";
+      }
+      renderDossier();
+      if (typeof applyAllFilters === "function") applyAllFilters();
+      return;
+    }
+
+    // active = true
+    if (weakTargetsRanked === null && !weakTargetLoading) {
       weakTargetLoading = true;
+      // Optimistic UX: show the "Searching…" state in the dossier while the
+      // fetch is in flight. renderTargetsList renders that state when
+      // discoveryActive && !discoveryResults && !discoveryError.
+      discoveryActive = true;
+      discoveryResults = null;
+      discoveryError = null;
+      if (nodes.discoveryStatus) {
+        nodes.discoveryStatus.textContent = "Searching…";
+      }
+      renderDossier();
       wmFetchWeakTargets(200)
         .then(function (data) {
           weakTargetsRanked = (data.results || []).slice();
           weakTargetLoading = false;
           recomputeWeakTargetIds();
+          _populateDossierFromTargets();
           if (typeof applyAllFilters === "function") applyAllFilters();
         })
         .catch(function (err) {
@@ -3080,15 +3146,20 @@
           weakTargetsRanked = [];
           weakTargetIds = new Set();
           console.warn("targets overlay fetch failed:", err);
+          discoveryError = "Couldn't load weak-targets pool — try again.";
+          discoveryResults = null;
+          if (nodes.discoveryStatus) nodes.discoveryStatus.textContent = "";
+          renderDossier();
           if (typeof applyAllFilters === "function") applyAllFilters();
         });
-      // Optimistic re-render
-      if (typeof applyAllFilters === "function") applyAllFilters();
-    } else if (active) {
-      // Pool already loaded — recompute in case marketing pill changed since last toggle
-      recomputeWeakTargetIds();
+      // Optimistic re-render of markers (highlight will appear once the
+      // recompute lands).
       if (typeof applyAllFilters === "function") applyAllFilters();
     } else {
+      // Pool already loaded — recompute (marketing pill may have changed)
+      // and surface the dossier list synchronously.
+      recomputeWeakTargetIds();
+      _populateDossierFromTargets();
       if (typeof applyAllFilters === "function") applyAllFilters();
     }
   }
