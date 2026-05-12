@@ -731,6 +731,56 @@
 
     selectedId = projectId;
     renderAll();
+    // spec-027f / phase-2b: fire-and-forget refresh of Supabase-backed
+    // fields (marketing_mode, decision_maker_status). The dossier already
+    // shows static-payload state instantly; this layers fresh state on
+    // top within a few hundred ms.
+    wmRefreshProjectFromSupabase(projectId);
+  }
+
+  // phase-2b: pull the latest /api/projects/{id} envelope from the
+  // dev-server (Fly fallback handled by wmFetchDevApi) and merge the
+  // editable fields into the in-memory project so the dossier reflects
+  // any inline edits made elsewhere or via direct PATCH calls.
+  function wmRefreshProjectFromSupabase(projectId) {
+    if (!projectId) return;
+    wmFetchDevApi("/api/projects/" + encodeURIComponent(projectId), {
+      headers: { "Accept": "application/json" },
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (freshProject) {
+        const localProject = projectById.get(projectId);
+        if (!localProject || !freshProject) return;
+        // Apply the editable fields from the fresh envelope onto the
+        // in-memory project shape. Reads use the same paths the
+        // dossier render reads from.
+        const freshDossier = freshProject.dossier_record || {};
+        const freshFacts = freshDossier.facts || {};
+        const freshWorkflow = freshDossier.workflow_target || {};
+        let changed = false;
+        if (freshFacts.marketing_mode !== undefined
+            && localProject.facts.marketing_mode !== freshFacts.marketing_mode) {
+          localProject.facts.marketing_mode = freshFacts.marketing_mode;
+          changed = true;
+        }
+        if (freshWorkflow.decision_maker_status !== undefined
+            && localProject.workflow.decision_maker_status !== freshWorkflow.decision_maker_status) {
+          localProject.workflow.decision_maker_status = freshWorkflow.decision_maker_status;
+          changed = true;
+        }
+        // Only re-render if the dossier is still showing this project
+        // AND something actually changed (avoid render thrash).
+        if (changed && selectedId === projectId) {
+          renderDossier();
+          // Lens count + marker color depend on these fields too.
+          if (typeof applyAllFilters === "function") applyAllFilters();
+        }
+      })
+      .catch(function (err) {
+        // Quiet fail — if the backend is down, the static-payload state
+        // is already on screen. No user-facing error needed.
+        console.debug("[wm] project refresh failed for", projectId, err);
+      });
   }
 
   function clearSelection() {
@@ -4025,8 +4075,62 @@
 
     const stateRow = createEl("div", "state-row");
     const mStatus = marketingStatus(selected);
-    const mChip = createEl("div", "brief-chip " + mStatus.tone, mStatus.label);
-    mChip.title = "Leasing mode — how this building's rentals are marketed";
+    // phase-2b: marketing-mode chip is now a clickable cycle button. Click
+    // advances in_house → outside_agent → unknown → in_house. The PATCH
+    // /api/projects/{id} endpoint persists the change to wm_project
+    // (Supabase) and stamps source='manual-edit' so future ETL re-runs
+    // don't overwrite the user's edit. Optimistic UI: chip updates
+    // immediately; revert on PATCH failure with a brief error indicator.
+    const mChip = createEl("button", "brief-chip is-editable " + mStatus.tone, mStatus.label);
+    mChip.type = "button";
+    mChip.title = "Leasing mode — click to cycle in-house / outside agent / unknown";
+    mChip.style.cursor = "pointer";
+    mChip.addEventListener("click", function (evt) {
+      evt.stopPropagation();
+      // Cycle order: in_house → outside_agent → unknown → in_house.
+      const current = String(
+        (selected.facts && selected.facts.marketing_mode) || "unknown"
+      ).toLowerCase();
+      const cycle = ["in_house", "outside_agent", "unknown"];
+      const idx = cycle.indexOf(current);
+      const next = cycle[(idx + 1) % cycle.length];
+      // Optimistic: update in-memory + visual chip immediately.
+      const prev = selected.facts.marketing_mode;
+      selected.facts.marketing_mode = next;
+      const nextStatus = marketingStatus(selected);
+      mChip.className = "brief-chip is-editable " + nextStatus.tone;
+      mChip.textContent = nextStatus.label;
+      // Persist to Supabase via the dev-server PATCH endpoint.
+      wmFetchDevApi("/api/projects/" + encodeURIComponent(selected.project_id), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ marketing_mode: next }),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.text().then(function (t) { throw new Error("PATCH " + r.status + ": " + t.slice(0, 200)); });
+          return r.json();
+        })
+        .then(function () {
+          // On success: re-bake markers so the in-house/outside color
+          // updates everywhere on the map, not just the chip.
+          if (typeof applyAllFilters === "function") applyAllFilters();
+        })
+        .catch(function (err) {
+          // Revert.
+          console.warn("[wm] marketing_mode PATCH failed; reverting", err);
+          selected.facts.marketing_mode = prev;
+          const revertStatus = marketingStatus(selected);
+          mChip.className = "brief-chip is-editable " + revertStatus.tone;
+          mChip.textContent = revertStatus.label;
+          // Tiny inline error indicator that auto-clears.
+          const errEl = createEl("span", "wm-edit-error", " · save failed");
+          errEl.style.color = "#a85a4a";
+          errEl.style.fontSize = "10px";
+          errEl.style.marginLeft = "4px";
+          mChip.parentElement && mChip.parentElement.appendChild(errEl);
+          setTimeout(function () { errEl.remove(); }, 3000);
+        });
+    });
     stateRow.appendChild(mChip);
     const wfChip = createEl("div", "brief-chip " + workflowTone(workflow.state), workflowLabel(workflow.state));
     wfChip.title = "Workflow state — current position in your outreach pipeline";
