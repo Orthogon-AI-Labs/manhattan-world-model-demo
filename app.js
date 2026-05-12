@@ -99,6 +99,21 @@
       .catch(function () { return fetch(remoteUrl, reqInit); });
   }
 
+  // spec-027d: generic local-first / Fly-fallback for any /api/* path the
+  // dev-server exposes. Per-building endpoints like /api/buildings/{id}/
+  // performance + /performance/history flow through here so the static
+  // demo's dossier shows real peer-comparison + weakness data. Returns
+  // a Response so existing .then(r => r.json()) chains keep working.
+  function wmFetchDevApi(path, init) {
+    const remoteUrl = WM_DEV_API_BASE + path;
+    return fetch(path, init)
+      .then(function (r) {
+        if (!r.ok) throw new Error("dev-server " + r.status);
+        return r;
+      })
+      .catch(function () { return fetch(remoteUrl, init); });
+  }
+
   if (!payload || !Array.isArray(payload.projects)) {
     app.textContent = "Payload unavailable.";
     return;
@@ -4550,7 +4565,9 @@
     }
 
     const url = "/api/buildings/" + encodeURIComponent(projectId) + "/performance";
-    fetch(url, {headers: {"Accept": "application/json"}})
+    // spec-027d: routed through wmFetchDevApi so the static demo falls
+    // through to the deployed Fly backend when the local dev-server isn't up.
+    wmFetchDevApi(url, {headers: {"Accept": "application/json"}})
       .then(function (resp) {
         return resp.json().then(function (data) {
           return {status: resp.status, ok: resp.ok, data: data};
@@ -4608,7 +4625,8 @@
         const trajectoryTier = pickTrajectoryTier(tiers);
         const histUrl = "/api/buildings/" + encodeURIComponent(projectId)
           + "/performance/history?tier=" + encodeURIComponent(trajectoryTier);
-        fetch(histUrl, {headers: {"Accept": "application/json"}})
+        // spec-027d: routed through wmFetchDevApi (Fly fallback for static demo).
+        wmFetchDevApi(histUrl, {headers: {"Accept": "application/json"}})
           .then(function (resp) { return resp.json(); })
           .then(function (h) {
             chartHost.innerHTML = "";
